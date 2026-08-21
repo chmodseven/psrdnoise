@@ -5,7 +5,7 @@ public class ShowAsVector2Drawer : MaterialPropertyDrawer
 {
     public override void OnGUI (Rect position, MaterialProperty prop, GUIContent label, MaterialEditor editor)
     {
-        if (prop.type == MaterialProperty.PropType.Vector)
+        if (prop.propertyType == UnityEngine.Rendering.ShaderPropertyType.Vector)
         {
             EditorGUIUtility.labelWidth = 0f;
             EditorGUIUtility.fieldWidth = 0f;
