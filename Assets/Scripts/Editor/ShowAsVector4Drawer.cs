@@ -2,7 +2,7 @@ using UnityEditor;
 using UnityEngine;
 
 // ReSharper disable once CheckNamespace
-public class ShowAsVector2Drawer : MaterialPropertyDrawer
+public class ShowAsVector4Drawer : MaterialPropertyDrawer
 {
     public override void OnGUI (Rect position, MaterialProperty prop, GUIContent label, MaterialEditor editor)
     {
@@ -19,7 +19,7 @@ public class ShowAsVector2Drawer : MaterialPropertyDrawer
 
             EditorGUI.BeginChangeCheck ();
             EditorGUI.showMixedValue = prop.hasMixedValue;
-            Vector4 vec = EditorGUI.Vector2Field (position, label, prop.vectorValue);
+            Vector4 vec = EditorGUI.Vector4Field (position, label, prop.vectorValue);
             if (EditorGUI.EndChangeCheck ())
             {
                 prop.vectorValue = vec;

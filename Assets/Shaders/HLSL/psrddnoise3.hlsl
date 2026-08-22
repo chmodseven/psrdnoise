@@ -215,23 +215,40 @@ float psrddnoise3 (float3 pos, float3 period, float alpha, bool useSeed, float4 
     }
     
     // Compute one pseudo-random hash value for each corner
-    float4 hash;
-    if (useSeed)
-    {
-        // New hash function to also apply seed permutation
-        float4 param = permute (float4 (i0.z, i1.z, i2.z, i3.z), seed.x);
-        float4 param_1 = permute (param, seed.y) + float4 (i0.y, i1.y, i2.y, i3.y);
-        float4 param_2 = permute (param_1, seed.z) + float4 (i0.x, i1.x, i2.x, i3.x);
-        hash = permute (param_2, seed.w);
-    }
-    else
-    {
-        // Original hash function
-        float4 param = float4 (i0.z, i1.z, i2.z, i3.z);
-        float4 param_1 = permute (param) + float4 (i0.y, i1.y, i2.y, i3.y);
-        float4 param_2 = permute (param_1) + float4 (i0.x, i1.x, i2.x, i3.x);
-        hash = permute (param_2);
-    }
+    // Expand the seed. Every term vanishes at seed 0, so a zero seed and
+    // useSeed = false both give the published function exactly.
+    float4 sd = useSeed ? seed : float4 (0.0, 0.0, 0.0, 0.0);
+    float q0, t0, c0, q1, t1, c1, q2, t2, c2, q3, t3, c3;
+    psrdnoise_slice (sd.x, 17.0, q0, t0, c0);
+    psrdnoise_slice (sd.y, 17.0, q1, t1, c1);
+    psrdnoise_slice (sd.z, 17.0, q2, t2, c2);
+    psrdnoise_slice (sd.w, 17.0, q3, t3, c3);
+
+    float k0 = psrdnoise_pick (q0, t0, 17.0, 7.0);
+    float k1 = psrdnoise_pick (q1, t1, 17.0, 7.0);
+    float k2 = psrdnoise_pick (q2, t2, 17.0, 7.0);
+
+    // The iz multiplier. Residue 1..16, so never a multiple of 17.
+    float r3 = t3 + 1.0;
+
+    // permute() is linear modulo 17, so on a lattice-aligned PLANAR slice --
+    // iz an integer combination of ix and iy, which is what sampling a tilted
+    // plane through the volume gives -- the whole chain reduces to a linear
+    // form mod 17. That form vanishes, collapsing the hash from 289 values to
+    // 17, exactly when (10 + k0) * mz == -1 (mod 17). Bumping the residue once
+    // escapes it. The bump can never fire at seed 0, where 10 * 1 == 10.
+    float needBump = step (mod ((10.0 + k0) * (17.0 * q3 + r3) + 1.0, 17.0), 0.5);
+    r3 = lerp (r3, mod (r3, 16.0) + 1.0, needBump);
+    float mz = 17.0 * q3 + r3;
+
+    // Compute one pseudo-random hash value for each corner.
+    // Three permute rounds, matching the original GLSL exactly.
+    float4 iz = mz * mod (float4 (i0.z, i1.z, i2.z, i3.z), 289.0) + mod (c0 + c3, 289.0);
+    float4 iy = float4 (i0.y, i1.y, i2.y, i3.y);
+    float4 ix = float4 (i0.x, i1.x, i2.x, i3.x);
+    float4 hash = permute_seeded (
+                      permute_seeded (
+                          permute_seeded (iz, k0, 0.0) + iy, k1, c1) + ix, k2, c2);
     
     // Compute generating gradients from a Fibonacci spiral on the unit sphere
     float4 theta = hash * 3.883222077; // 2*pi/golden ratio

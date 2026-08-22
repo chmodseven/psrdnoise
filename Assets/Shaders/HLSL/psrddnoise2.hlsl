@@ -129,21 +129,30 @@ float psrddnoise2 (float2 pos, float2 period, float alpha, bool useSeed, float4 
     }
     
 	// Compute one pseudo-random hash value for each corner
+    // Expand the seed. Every term vanishes at seed 0, so a zero seed and
+    // useSeed = false both give the published function exactly.
+    float4 sd = useSeed ? seed : float4 (0.0, 0.0, 0.0, 0.0);
+    float q0, t0, c0, q1, t1, c1, q2, t2, c2, q3, t3, c3;
+    psrdnoise_slice (sd.x, 17.0, q0, t0, c0);
+    psrdnoise_slice (sd.y, 17.0, q1, t1, c1);
+    psrdnoise_slice (sd.z, 17.0, q2, t2, c2);
+    psrdnoise_slice (sd.w, 17.0, q3, t3, c3);
+
+    // iu and iv are REMAPPED by a multiplier coprime to 17, not merely
+    // translated. A translation would only ever pan the field sideways; a
+    // remap restructures it, which is what a seed should do.
+    float mu = 1.0 + psrdnoise_pick (q0, t0, 17.0, 16.0);
+    float mv = 1.0 + psrdnoise_pick (q3, t3, 17.0, 16.0);
+    float k1 = psrdnoise_pick (q1, t1, 17.0, 15.0);   // keeps 2 + k1 coprime to 17
+    float k2 = psrdnoise_pick (q2, t2, 17.0, 7.0);    // keeps 10 + k2 coprime to 17
+
+    // Compute one pseudo-random hash value for each corner.
+    // Reducing iv before adding it is exact and identical to the original,
+    // because the outer mod() absorbs it -- and it keeps the sum far below 2^24.
     float3 hash;
-    if (useSeed)
-    {
-        // New hash function to also apply seed permutation
-        hash = permute (mod (iu, 289.0), seed.x);
-        hash = permute (mod ((hash * 51.0 + 2.0) * hash + iv, 289.0), seed.y);
-        hash = permute (mod ((hash * 34.0 + 10.0) * hash, 289.0), seed.z);
-    }
-    else
-    {
-        // Original hash function
-        hash = mod (iu, 289.0);
-        hash = mod ((hash * 51.0 + 2.0) * hash + iv, 289.0);
-        hash = mod ((hash * 34.0 + 10.0) * hash, 289.0);
-    }
+    hash = mod (mu * mod (iu, 289.0) + mod (c0 + c3, 289.0), 289.0);
+    hash = mod ((hash * 51.0 + (2.0 + k1)) * hash + mv * mod (iv, 289.0) + c1, 289.0);
+    hash = mod ((hash * 34.0 + (10.0 + k2)) * hash + c2, 289.0);
     
 	// Pick a pseudo-random angle and add the desired rotation
     float3 psi = hash * 0.07482 + alpha;

@@ -118,6 +118,10 @@ Material:
     - _QueueControl: 0
     - _QueueOffset: 0
     - _ReceiveShadows: 1
+    - _SeedW: 0
+    - _SeedX: 0
+    - _SeedY: 0
+    - _SeedZ: 0
     - _Smoothness: 0.5
     - _SmoothnessTextureChannel: 0
     - _SpecularHighlights: 1

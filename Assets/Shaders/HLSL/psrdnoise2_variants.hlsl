@@ -26,40 +26,55 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 //
-// Periodic (tiling) 2-D simplex noise (hexagonal lattice gradient noise)
-// with rotating gradients and analytic derivatives.
+// Composed variants of the 2-D psrdnoise function: fBM, fractal, warped
+// fractal, flow noise, billowing smoke, tendrils, and a fake bump lighting
+// term. Each is a short accumulation loop over psrdnoise2().
 //
-// This is (yet) another variation on simplex noise. Unlike previous
-// implementations, the grid is axis-aligned and slightly stretched in
-// the y direction to permit rectangular tiling.
-// The noise pattern can be made to tile seamlessly to any integer period
-// in x and any even integer period in y. Odd periods may be specified
-// for y, but then the actual tiling period will be twice that number.
+// ---------------------------------------------------------------------------
+// THREE THINGS CHANGED FROM THE ORIGINAL DEMO VERSIONS
 //
-// The rotating gradients give the appearance of a swirling motion, and
-// can serve a similar purpose for animation as motion along z in 3-D
-// noise. The rotating gradients in conjunction with the analytic
-// derivatives allow for "flow noise" effects as presented by Ken
-// Perlin and Fabrice Neyret.
+// 1. THE GRADIENT OUTPUT IS NOW CORRECT.
+//    Every variant previously returned the LAST octave's gradient, which is
+//    not the gradient of the value it returns. Each now accumulates the
+//    gradient by the chain rule: an octave sampled at frequency f contributes
+//    its gradient scaled by its amplitude AND by f.
 //
-// 2-D tiling simplex noise with rotating gradients and analytical derivative.
-// "float2 x" is the point (x,y) to evaluate,
-// "float2 period" is the desired periods along x and y, and
-// "float alpha" is the rotation (in radians) for the swirling gradients.
-// The "float" return value is the noise value, and
-// the "out float2 gradient" argument returns the x,y partial derivatives.
+//    Where a variant WARPS its sample position by an accumulated gradient
+//    (warped_fractal, flow_noise, billowing_smoke, tendrils, not_bump), the
+//    exact derivative would need the Jacobian of the warp, which in turn needs
+//    the Hessian of the noise. psrdnoise does not return one. Those variants
+//    therefore return an APPROXIMATE gradient that ignores the warp Jacobian.
+//    This is the usual practice for domain-warped noise and is accurate enough
+//    for normals and slopes, but it is an approximation and is marked as such
+//    on each function.
 //
-// Setting either period to 0.0 or a negative value will skip the wrapping
-// along that dimension. Setting both periods to 0.0 makes the function
-// execute about 15% faster.
+// 2. PERIOD NOW SCALES WITH FREQUENCY IN EVERY OCTAVE.
+//    An octave that samples at f times the position must also be given f times
+//    the period, or it does not wrap where the caller asked. fBM, fractal and
+//    warped_fractal all passed the period through unscaled and so only tiled
+//    on their first octave.
 //
-// Not using the return value for the gradient will make the compiler
-// eliminate the code for computing it. This speeds up the function
-// by 10-15%.
+//    Note this affects PERIODIC WRAP only. Field continuity across adjacent
+//    chunks never depended on it, so splitting a pattern across tiles by
+//    shifting the sample position was, and remains, correct.
 //
-// The rotation by alpha uses one single addition. Unlike the 3-D version
-// of psrdnoise(), setting alpha == 0.0 gives no speedup.
+// 3. THE HARDCODED UV-SPACE TRANSFORM IS GONE.
+//    Every variant began with "v = nscale * (pos - 0.5)", with nscale fixed at
+//    4, 6, or 8. That is right for a demo quad with UVs in [0,1] and wrong for
+//    world-space or tier-local coordinates, and it also broke the period,
+//    because the position was scaled while the period was not.
 //
+//    The variants are now pure functions of the position handed to them.
+//    TO REPRODUCE THE PREVIOUS APPEARANCE from a material, fold the transform
+//    into the material's own Scale and Offset:
+//        Scale  := Scale * nscale
+//        Offset := Offset * nscale - nscale * 0.5
+//    where nscale was 4 for most variants, 6 for fractal, 8 for not_bump.
+//
+//    Two position-dependent warp ramps have also gone, for the same reason:
+//    warped_fractal and flow_noise faded their warp with "1.1 - pos.y * 1.2",
+//    which put an unexplained top-to-bottom gradient on any surface.
+// ---------------------------------------------------------------------------
 
 // ReSharper disable CppParameterMayBeConst
 // ReSharper disable CppLocalVariableMayBeConst
@@ -71,62 +86,77 @@
 
 #include "./psrdnoise2.hlsl"
 
+// Fractal Brownian motion. Exact analytic gradient.
+// variant: 0 = standard, 1 = valleys, 2 = ridges.
 float psrdnoise2_fbm (float2 pos, float2 period, float alpha, bool useSeed, float4 seed,
     int variant, int octaves, float frequency, float amplitude, float lacunarity, float gain, out float2 gradient)
 {
     int numberVariants = 3;
-    if (octaves <= 0.0 || variant < 0 || variant >= numberVariants)
+    gradient = float2 (0.0, 0.0);
+    if (octaves <= 0 || variant < 0 || variant >= numberVariants)
     {
-        gradient = float2 (0.0, 0.0);
         return 0.0;
     }
 
     float value = 0.0;
-    
+    float2 octaveGradient;
+
     if (variant == 0)
     {
         // Standard
         for (int i = 0; i < octaves; ++i)
         {
-            float2 adjustedPos = float2 (pos.x * frequency, pos.y * frequency);
-            float noise = psrdnoise2 (adjustedPos, period, alpha, useSeed, seed, gradient) * amplitude;
-            value += noise;
+            float noise = psrdnoise2 (pos * frequency, period * frequency, alpha,
+                useSeed, seed, octaveGradient);
+            value += noise * amplitude;
+            gradient += octaveGradient * amplitude * frequency;
             frequency *= lacunarity;
             amplitude *= gain;
         }
     }
     else if (variant == 1)
     {
-        // Valleys
+        // Valleys. d|n| = sign(n) * dn
         for (int i = 0; i < octaves; ++i)
         {
-            float2 adjustedPos = float2 (pos.x * frequency, pos.y * frequency);
-            float noise = psrdnoise2 (adjustedPos, period, alpha, useSeed, seed, gradient) * amplitude;
-            value += abs (noise);
+            float noise = psrdnoise2 (pos * frequency, period * frequency, alpha,
+                useSeed, seed, octaveGradient);
+            value += abs (noise) * amplitude;
+            gradient += sign (noise) * octaveGradient * amplitude * frequency;
             frequency *= lacunarity;
             amplitude *= gain;
         }
     }
     else if (variant == 2)
     {
-        // Ridges
+        // Ridges. Each octave forms q = (offset - |n|)^2 and contributes
+        // q * amplitude * (1 + previous q), so the derivative needs both the
+        // derivative of q and that of the previous octave's q.
         float previousNoise = 0.0;
+        float2 previousGradient = float2 (0.0, 0.0);
         for (int i = 0; i < octaves; ++i)
         {
             float offset = 0.9;
-            float2 adjustedPos = float2 (pos.x * frequency, pos.y * frequency);
-            float noise = psrdnoise2 (adjustedPos, period, alpha, useSeed, seed, gradient);
-            noise = abs (noise);
-            noise = offset - noise;
-            noise = noise * noise;
-            value += noise * amplitude;
-            value += noise * amplitude * previousNoise;
-            previousNoise = noise;
+            float noise = psrdnoise2 (pos * frequency, period * frequency, alpha,
+                useSeed, seed, octaveGradient);
+
+            float2 dAbs = sign (noise) * octaveGradient * frequency;
+            float ridge = offset - abs (noise);
+            float2 dRidge = -dAbs;
+            float squared = ridge * ridge;
+            float2 dSquared = 2.0 * ridge * dRidge;
+
+            value += squared * amplitude;
+            value += squared * amplitude * previousNoise;
+            gradient += amplitude * ((1.0 + previousNoise) * dSquared + squared * previousGradient);
+
+            previousNoise = squared;
+            previousGradient = dSquared;
             frequency *= lacunarity;
             amplitude *= gain;
         }
     }
-    
+
     return value;
 }
 
@@ -144,23 +174,32 @@ void psrdnoise2_fbm_half (float2 pos, float2 period, float alpha, bool useSeed, 
     int variant, int octaves, float frequency, float amplitude, float lacunarity, float gain,
     out half value, out half2 gradient)
 {
+    float2 g;
     value = psrdnoise2_fbm (pos, period, alpha, useSeed, seed,
-        variant, octaves, frequency, amplitude, lacunarity, gain, gradient);
+        variant, octaves, frequency, amplitude, lacunarity, gain, g);
+    gradient = g;
 }
 
+// Five-octave fractal on a 1, 2, 3, 8, 16 frequency ladder.
+// alpha is used as a time value here; the rotation advances with frequency.
+// Exact analytic gradient.
 float psrdnoise2_fractal (float2 pos, float2 period, float alpha, bool useSeed, float4 seed, out float2 gradient)
 {
-    float time = alpha;
-    const float scale = 6.0;
-    float2 v = scale * (pos - 0.5);
-    float2 p = period;
-    float a = 0.5 * time;
+    float a = 0.5 * alpha;
+    float2 g;
     float n = 0.5;
-    n += 0.4 * psrdnoise2 (v, p, a, useSeed, seed, gradient);
-    n += 0.2 * psrdnoise2 (2.0 * v + 0.1, p * 2.0, 2.0 * a, useSeed, seed, gradient);
-    n += 0.1 * psrdnoise2 (3.0 * v + 0.2, p * 4.0, 4.0 * a, useSeed, seed, gradient);
-    n += 0.05 * psrdnoise2 (8.0 *v + 0.3, p * 8.0, 8.0 * a, useSeed, seed, gradient);
-    n += 0.025 * psrdnoise2 (16.0 * v, p * 16.0, 16.0 * a, useSeed, seed, gradient);
+
+    n += 0.4 * psrdnoise2 (pos, period, a, useSeed, seed, g);
+    gradient = 0.4 * g;
+    n += 0.2 * psrdnoise2 (2.0 * pos + 0.1, period * 2.0, 2.0 * a, useSeed, seed, g);
+    gradient += 0.2 * 2.0 * g;
+    n += 0.1 * psrdnoise2 (3.0 * pos + 0.2, period * 3.0, 4.0 * a, useSeed, seed, g);
+    gradient += 0.1 * 3.0 * g;
+    n += 0.05 * psrdnoise2 (8.0 * pos + 0.3, period * 8.0, 8.0 * a, useSeed, seed, g);
+    gradient += 0.05 * 8.0 * g;
+    n += 0.025 * psrdnoise2 (16.0 * pos, period * 16.0, 16.0 * a, useSeed, seed, g);
+    gradient += 0.025 * 16.0 * g;
+
     return n;
 }
 
@@ -175,25 +214,38 @@ void psrdnoise2_fractal_float (float2 pos, float2 period, float alpha, bool useS
 void psrdnoise2_fractal_half (float2 pos, float2 period, float alpha, bool useSeed, float4 seed,
     out half value, out half2 gradient)
 {
-    value = psrdnoise2_fractal (pos, period, alpha, useSeed, seed, gradient);
+    float2 g;
+    value = psrdnoise2_fractal (pos, period, alpha, useSeed, seed, g);
+    gradient = g;
 }
 
+// Four-octave fractal whose later octaves are warped by the accumulated
+// gradient of the earlier ones. Gradient is APPROXIMATE: the warp Jacobian is
+// ignored.
 float psrdnoise2_warped_fractal (float2 pos, float2 period, float alpha, bool useSeed, float4 seed, out float2 gradient)
-{ 
-    const float nscale = 4.0;
-    float2 v = nscale * (pos - 0.5);
-    float warp = 0.13 * clamp (1.1 - pos.y * 1.2, 0.0, 1.0);
+{
+    const float warp = 0.13;
+    float2 g;
     float n = 0.5;
-    n += 0.4 * psrdnoise2 (v, period, alpha, useSeed, seed, gradient);
-    float2 gsum = gradient;
-    float2 warped_v = v * 2.0 + warp * gsum;
-    n += 0.2 * psrdnoise2 (warped_v, period, alpha * 2.0, useSeed, seed, gradient);
-    gsum += 0.5 * gradient;
-    warped_v = v * 4.0 + warp*gsum;
-    n += 0.1 * psrdnoise2 (warped_v, period, alpha * 4.0, useSeed, seed, gradient);
-    gsum += 0.25 * gradient;
-    warped_v = v * 8.0 + warp*gsum;
-    n += 0.05 * psrdnoise2 (warped_v, period, alpha * 8.0, useSeed, seed, gradient);
+
+    n += 0.4 * psrdnoise2 (pos, period, alpha, useSeed, seed, g);
+    gradient = 0.4 * g;
+    float2 gsum = g;
+
+    float2 warped = pos * 2.0 + warp * gsum;
+    n += 0.2 * psrdnoise2 (warped, period * 2.0, alpha * 2.0, useSeed, seed, g);
+    gradient += 0.2 * 2.0 * g;
+    gsum += 0.5 * g;
+
+    warped = pos * 4.0 + warp * gsum;
+    n += 0.1 * psrdnoise2 (warped, period * 4.0, alpha * 4.0, useSeed, seed, g);
+    gradient += 0.1 * 4.0 * g;
+    gsum += 0.25 * g;
+
+    warped = pos * 8.0 + warp * gsum;
+    n += 0.05 * psrdnoise2 (warped, period * 8.0, alpha * 8.0, useSeed, seed, g);
+    gradient += 0.05 * 8.0 * g;
+
     return n;
 }
 
@@ -208,19 +260,27 @@ void psrdnoise2_warped_fractal_float (float2 pos, float2 period, float alpha, bo
 void psrdnoise2_warped_fractal_half (float2 pos, float2 period, float alpha, bool useSeed, float4 seed,
     out half value, out half2 gradient)
 {
-    value = psrdnoise2_warped_fractal (pos, period, alpha, useSeed, seed, gradient);
+    float2 g;
+    value = psrdnoise2_warped_fractal (pos, period, alpha, useSeed, seed, g);
+    gradient = g;
 }
 
+// Two octaves, the second warped by the first's gradient.
+// Gradient is APPROXIMATE: the warp Jacobian is ignored.
 float psrdnoise2_flow_noise (float2 pos, float2 period, float alpha, bool useSeed, float4 seed, out float2 gradient)
 {
-    const float nscale = 4.0;
-    float2 v = nscale * (pos - 0.5);
+    const float warp = 0.15;
+    float2 g;
     float n = 0.5;
-    float warpamount = clamp (1.1 - pos.y * 1.2, 0.0, 1.0);
-    n += 0.4 * psrdnoise2 (v, period, alpha, useSeed, seed, gradient);
-    float2 gsum = gradient;
-    float2 warped_v = v * 2.0 + 0.15 * warpamount * gsum;
-    n += 0.2 * psrdnoise2 (warped_v, period * 2.0, alpha * 2.0, useSeed, seed, gradient);
+
+    n += 0.4 * psrdnoise2 (pos, period, alpha, useSeed, seed, g);
+    gradient = 0.4 * g;
+    float2 gsum = g;
+
+    float2 warped = pos * 2.0 + warp * gsum;
+    n += 0.2 * psrdnoise2 (warped, period * 2.0, alpha * 2.0, useSeed, seed, g);
+    gradient += 0.2 * 2.0 * g;
+
     return n;
 }
 
@@ -235,25 +295,33 @@ void psrdnoise2_flow_noise_float (float2 pos, float2 period, float alpha, bool u
 void psrdnoise2_flow_noise_half (float2 pos, float2 period, float alpha, bool useSeed, float4 seed,
     out half value, out half2 gradient)
 {
-    value = psrdnoise2_flow_noise (pos, period, alpha, useSeed, seed, gradient);
+    float2 g;
+    value = psrdnoise2_flow_noise (pos, period, alpha, useSeed, seed, g);
+    gradient = g;
 }
 
+// Five octaves warped by the running gradient sum, biased bright.
+// Gradient is APPROXIMATE: the warp Jacobian is ignored.
 float psrdnoise2_billowing_smoke (float2 pos, float2 period, float alpha, bool useSeed, float4 seed, out float2 gradient)
 {
-    const float nscale = 4.0;
-    float2 v = nscale * (pos - 0.5);
+    const float warp = 0.13;
     float n = 0.0;
     float w = 1.0;
     float s = 1.0;
+    float2 g;
     float2 gsum = float2 (0.0, 0.0);
+    float2 gradAcc = float2 (0.0, 0.0);
+
     for (float i = 0.0; i < 5.0; i++)
     {
-        float warp = 0.13;
-        n += w * psrdnoise2 (s * v + warp * gsum, s * period, s * alpha, useSeed, seed, gradient);
-        gsum += w * gradient;
+        n += w * psrdnoise2 (s * pos + warp * gsum, s * period, s * alpha, useSeed, seed, g);
+        gsum += w * g;              // drives the warp; deliberately unscaled by s
+        gradAcc += w * s * g;       // the actual derivative of n
         w *= 0.5;
         s *= 2.0;
     }
+
+    gradient = 0.4 * gradAcc;
     return 0.5 + 0.4 * n;
 }
 
@@ -268,25 +336,34 @@ void psrdnoise2_billowing_smoke_float (float2 pos, float2 period, float alpha, b
 void psrdnoise2_billowing_smoke_half (float2 pos, float2 period, float alpha, bool useSeed, float4 seed,
     out half value, out half2 gradient)
 {
-    value = psrdnoise2_billowing_smoke (pos, period, alpha, useSeed, seed, gradient);
+    float2 g;
+    value = psrdnoise2_billowing_smoke (pos, period, alpha, useSeed, seed, g);
+    gradient = g;
 }
 
+// The same accumulation as billowing_smoke, biased dark, which inverts the
+// structure into bright filaments around darker cells.
+// Gradient is APPROXIMATE: the warp Jacobian is ignored.
 float psrdnoise2_tendrils (float2 pos, float2 period, float alpha, bool useSeed, float4 seed, out float2 gradient)
-{ 
-    const float nscale = 4.0;
-    float2 v = nscale * (pos - 0.5);
+{
+    const float warp = 0.13;
     float n = 0.0;
     float w = 1.0;
     float s = 1.0;
+    float2 g;
     float2 gsum = float2 (0.0, 0.0);
+    float2 gradAcc = float2 (0.0, 0.0);
+
     for (float i = 0.0; i < 5.0; i++)
     {
-        float warp = 0.13;
-        n += w * psrdnoise2 (s * v + warp * gsum, s * period, s * alpha, useSeed, seed, gradient);
-        gsum += w * gradient;
+        n += w * psrdnoise2 (s * pos + warp * gsum, s * period, s * alpha, useSeed, seed, g);
+        gsum += w * g;              // drives the warp; deliberately unscaled by s
+        gradAcc += w * s * g;       // the actual derivative of n
         w *= 0.5;
         s *= 2.0;
     }
+
+    gradient = -0.4 * gradAcc;
     return 0.5 - 0.4 * n;
 }
 
@@ -301,21 +378,33 @@ void psrdnoise2_tendrils_float (float2 pos, float2 period, float alpha, bool use
 void psrdnoise2_tendrils_half (float2 pos, float2 period, float alpha, bool useSeed, float4 seed,
     out half value, out half2 gradient)
 {
-    value = psrdnoise2_tendrils (pos, period, alpha, useSeed, seed, gradient);
+    float2 g;
+    value = psrdnoise2_tendrils (pos, period, alpha, useSeed, seed, g);
+    gradient = g;
 }
 
+// A lighting term that resembles a bump map without one.
+// NOTE: unlike the other variants, the returned value is a shaded luminance,
+// not a scalar field. The gradient output is therefore the accumulated FIELD
+// gradient used to build the surface normal, not the derivative of the
+// returned luminance -- which is what a caller actually wants from it.
 float psrdnoise2_not_bump (float2 pos, float2 period, float alpha, bool useSeed, float4 seed, out float2 gradient)
 {
-    const float nscale = 8.0;
-    float2 v = nscale * (pos - 0.5);
+    const float warp = 0.11;
+    float2 g;
     float n = 0.5;
-    n += 0.4 * psrdnoise2 (v, period, alpha, useSeed, seed, gradient);
-    float2 gsum = gradient;
-    n += 0.2 * psrdnoise2 (v * 2.0 + 0.11 * gsum, period * 2.0, alpha * 2.0, useSeed, seed, gradient);
-    gsum += gradient;
+
+    n += 0.4 * psrdnoise2 (pos, period, alpha, useSeed, seed, g);
+    float2 gsum = 0.4 * g;
+
+    n += 0.2 * psrdnoise2 (pos * 2.0 + warp * gsum, period * 2.0, alpha * 2.0, useSeed, seed, g);
+    gsum += 0.2 * 2.0 * g;
+
+    gradient = gsum;
+
     float3 N = normalize (float3 (-gsum, 1.0));
     float3 L = normalize (float3 (1.0, 1.0, 1.0));
-    return pow (max (dot (N,L), 0.0), 10.0);
+    return pow (max (dot (N, L), 0.0), 10.0);
 }
 
 // Used by ShaderGraph
@@ -329,7 +418,9 @@ void psrdnoise2_not_bump_float (float2 pos, float2 period, float alpha, bool use
 void psrdnoise2_not_bump_half (float2 pos, float2 period, float alpha, bool useSeed, float4 seed,
     out half value, out half2 gradient)
 {
-    value = psrdnoise2_not_bump (pos, period, alpha, useSeed, seed, gradient);
+    float2 g;
+    value = psrdnoise2_not_bump (pos, period, alpha, useSeed, seed, g);
+    gradient = g;
 }
 
 #endif

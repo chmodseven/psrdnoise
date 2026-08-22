@@ -20,7 +20,10 @@ Shader "psrdnoise/psrdnoise_switchable_Builtin"
         _BlendAmount ("Blend Amount", Range (0.0, 1.0)) = 0.5
         _MainTex ("Tiling and Offset", 2D) = "white" {}
         [Toggle (_UseSeed)] _UseSeed ("Use Seed", Float) = 1.0
-        _Seed ("Seed", Color) = (1.0, 1.0, 1.0, 1.0)
+        _SeedX ("SeedX", Float) = 0.0
+        _SeedY ("SeedY", Float) = 0.0
+        _SeedZ ("SeedZ", Float) = 0.0
+        _SeedW ("SeedW", Float) = 0.0
     }
     SubShader
     {
@@ -53,7 +56,10 @@ Shader "psrdnoise/psrdnoise_switchable_Builtin"
         fixed4 _Period;
         half _BlendAmount;
         float _UseSeed;
-        fixed4 _Seed;
+        float _SeedX;
+        float _SeedY;
+        float _SeedZ;
+        float _SeedW;
 
         // Add instancing support for this shader. You need to check 'Enable Instancing' on materials that use the shader.
         // See https://docs.unity3d.com/Manual/GPUInstancing.html for more information about instancing.
@@ -67,20 +73,21 @@ Shader "psrdnoise/psrdnoise_switchable_Builtin"
             float result = 0.0;
             float2 gradient;
             bool useSeed = _UseSeed == 1.0;
+            fixed4 seed = fixed4 (_SeedX, _SeedY, _SeedZ, _SeedW);
             #ifdef _PRIMARY_BASE
-                result = psrdnoise2 (pos, _Period, _PrimaryAlpha, useSeed, _Seed, gradient);
+                result = psrdnoise2 (pos, _Period, _PrimaryAlpha, useSeed, seed, gradient);
             #elif _PRIMARY_FRACTAL
-                result = psrdnoise2_fractal (pos, _Period, _PrimaryAlpha, useSeed, _Seed, gradient);
+                result = psrdnoise2_fractal (pos, _Period, _PrimaryAlpha, useSeed, seed, gradient);
             #elif _PRIMARY_WARPED_FRACTAL
-                result = psrdnoise2_warped_fractal (pos, _Period, _PrimaryAlpha, useSeed, _Seed, gradient);
+                result = psrdnoise2_warped_fractal (pos, _Period, _PrimaryAlpha, useSeed, seed, gradient);
             #elif _PRIMARY_FLOW_NOISE
-                result = psrdnoise2_flow_noise (pos, _Period, _PrimaryAlpha, useSeed, _Seed, gradient);
+                result = psrdnoise2_flow_noise (pos, _Period, _PrimaryAlpha, useSeed, seed, gradient);
             #elif _PRIMARY_BILLOWING_SMOKE
-                result = psrdnoise2_billowing_smoke (pos, _Period, _PrimaryAlpha, useSeed, _Seed, gradient);
+                result = psrdnoise2_billowing_smoke (pos, _Period, _PrimaryAlpha, useSeed, seed, gradient);
             #elif _PRIMARY_TENDRILS
-                result = psrdnoise2_tendrils (pos, _Period, _PrimaryAlpha, useSeed, _Seed, gradient);
+                result = psrdnoise2_tendrils (pos, _Period, _PrimaryAlpha, useSeed, seed, gradient);
             #elif _PRIMARY_NOT_BUMP
-                result = psrdnoise2_not_bump (pos, _Period, _PrimaryAlpha, useSeed, _Seed, gradient);
+                result = psrdnoise2_not_bump (pos, _Period, _PrimaryAlpha, useSeed, seed, gradient);
             #endif
             if (_PrimaryInvert == 1.0)
             {
@@ -94,22 +101,23 @@ Shader "psrdnoise/psrdnoise_switchable_Builtin"
             float result = 0.0;
             float2 gradient;
             bool useSeed = _UseSeed == 1.0;
+            fixed4 seed = fixed4 (_SeedX, _SeedY, _SeedZ, _SeedW);
             #ifdef _SECONDARY_NONE
                 return 0.0;
             #elif _SECONDARY_BASE
-                result = psrdnoise2 (pos, _Period, _SecondaryAlpha, useSeed, _Seed, gradient);
+                result = psrdnoise2 (pos, _Period, _SecondaryAlpha, useSeed, seed, gradient);
             #elif _SECONDARY_FRACTAL
-                result = psrdnoise2_fractal (pos, _Period, _SecondaryAlpha, useSeed, _Seed, gradient);
+                result = psrdnoise2_fractal (pos, _Period, _SecondaryAlpha, useSeed, seed, gradient);
             #elif _SECONDARY_WARPED_FRACTAL
-                result = psrdnoise2_warped_fractal (pos, _Period, _SecondaryAlpha, useSeed, _Seed, gradient);
+                result = psrdnoise2_warped_fractal (pos, _Period, _SecondaryAlpha, useSeed, seed, gradient);
             #elif _SECONDARY_FLOW_NOISE
-                result = psrdnoise2_flow_noise (pos, _Period, _SecondaryAlpha, useSeed, _Seed, gradient);
+                result = psrdnoise2_flow_noise (pos, _Period, _SecondaryAlpha, useSeed, seed, gradient);
             #elif _SECONDARY_BILLOWING_SMOKE
-                result = psrdnoise2_billowing_smoke (pos, _Period, _SecondaryAlpha, useSeed, _Seed, gradient);
+                result = psrdnoise2_billowing_smoke (pos, _Period, _SecondaryAlpha, useSeed, seed, gradient);
             #elif _SECONDARY_TENDRILS
-                result = psrdnoise2_tendrils (pos, _Period, _SecondaryAlpha, useSeed, _Seed, gradient);
+                result = psrdnoise2_tendrils (pos, _Period, _SecondaryAlpha, useSeed, seed, gradient);
             #elif _SECONDARY_NOT_BUMP
-                result = psrdnoise2_not_bump (pos, _Period, _SecondaryAlpha, useSeed, _Seed, gradient);
+                result = psrdnoise2_not_bump (pos, _Period, _SecondaryAlpha, useSeed, seed, gradient);
             #endif
             if (_SecondaryInvert == 1.0)
             {

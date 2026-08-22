@@ -159,6 +159,10 @@ Material:
     - _QueueOffset: 0
     - _ReceiveShadows: 1
     - _RenderQueueType: 1
+    - _Seed_W: 0
+    - _Seed_X: 0
+    - _Seed_Y: 0
+    - _Seed_Z: 0
     - _Smoothness: 0.5
     - _SmoothnessTextureChannel: 0
     - _SpecularHighlights: 1
@@ -183,7 +187,7 @@ Material:
     - _TransparentWritingMotionVec: 0
     - _TransparentZWrite: 0
     - _UseShadowThreshold: 0
-    - _Use_Seed: 0
+    - _Use_Seed: 1
     - _WorkflowMode: 1
     - _ZTestDepthEqualForOpaque: 3
     - _ZTestGBuffer: 4

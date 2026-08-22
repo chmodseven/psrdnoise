@@ -1,6 +1,7 @@
 using UnityEditor;
 using UnityEngine;
 
+// ReSharper disable once CheckNamespace
 public class ShowAsVector3Drawer : MaterialPropertyDrawer
 {
     public override void OnGUI (Rect position, MaterialProperty prop, GUIContent label, MaterialEditor editor)

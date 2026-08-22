@@ -5,7 +5,10 @@ Shader "psrdnoise/psrdnoise2_fBM_Builtin"
         [ShowAsVector2] _Period ("Period", Vector) = (10.0, 10.0, 10.0, 10.0)
         _Alpha ("Alpha", Range (0.0, 1.0)) = 0.0
         [Toggle (_UseSeed)] _UseSeed ("Use Seed", Float) = 1.0
-        _Seed ("Seed", Color) = (1.0, 1.0, 1.0, 1.0)
+        _SeedX ("SeedX", Float) = 0.0
+        _SeedY ("SeedY", Float) = 0.0
+        _SeedZ ("SeedZ", Float) = 0.0
+        _SeedW ("SeedW", Float) = 0.0
         [KeywordEnum (Standard, Valleys, Ridges)] _Variant ("Type", Float) = 0
         _Octaves ("Octaves", Float) = 4.0
         _Frequency ("Frequency", Float) = 1.0
@@ -40,7 +43,10 @@ Shader "psrdnoise/psrdnoise2_fBM_Builtin"
         half _Alpha;
         fixed4 _Period;
         float _UseSeed;
-        fixed4 _Seed;
+        float _SeedX;
+        float _SeedY;
+        float _SeedZ;
+        float _SeedW;
         float _Octaves;
         float _Frequency;
         float _Amplitude;
@@ -59,14 +65,15 @@ Shader "psrdnoise/psrdnoise2_fBM_Builtin"
             float result = 0.0;
             float2 gradient;
             bool useSeed = _UseSeed == 1.0;
+            fixed4 seed = fixed4 (_SeedX, _SeedY, _SeedZ, _SeedW);
             #ifdef _VARIANT_STANDARD
-                result = psrdnoise2_fbm (IN.uv_MainTex, _Period, _Alpha, useSeed, _Seed,
+                result = psrdnoise2_fbm (IN.uv_MainTex, _Period, _Alpha, useSeed, seed,
                     0, _Octaves, _Frequency, _Amplitude, _Lacunarity, _Gain, gradient);
             #elif _VARIANT_VALLEYS
-                result = psrdnoise2_fbm (IN.uv_MainTex, _Period, _Alpha, useSeed, _Seed,
+                result = psrdnoise2_fbm (IN.uv_MainTex, _Period, _Alpha, useSeed, seed,
                     1, _Octaves, _Frequency, _Amplitude, _Lacunarity, _Gain, gradient);
             #elif _VARIANT_RIDGES
-                result = psrdnoise2_fbm (IN.uv_MainTex, _Period, _Alpha, useSeed, _Seed,
+                result = psrdnoise2_fbm (IN.uv_MainTex, _Period, _Alpha, useSeed, seed,
                     2, _Octaves, _Frequency, _Amplitude, _Lacunarity, _Gain, gradient);
             #endif
             o.Albedo = result.rrr;
