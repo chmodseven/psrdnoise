@@ -111,6 +111,7 @@ Material:
     - _GlossMapScale: 0
     - _Glossiness: 0
     - _GlossyReflections: 0
+    - _Jitter: 0.5
     - _Metallic: 0
     - _NOISE_TYPE: 3
     - _Noise_Scale: 10
